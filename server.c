@@ -1,18 +1,21 @@
 #include <stdio.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include "fcntl.h"
-#include <sys/mman.h>
-#include <sys/stat.h>
+#include <signal.h>
 #include <sys/shm.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
-#include <sys/wait.h>
 
-#define SHM_BYTES 5
+#define SHM_NAME "/shared_counter"
+#define SHM_SIZE sizeof(int)
+#define SHM_FLAG  O_RDWR | O_CREAT
+
 /*
  * Para probar, usar netcat. Ej:
  *
@@ -32,7 +35,6 @@ void quit(char *s)
 
 int U = 0;
 
-/* Funcion para leer la terminal. */
 int fd_readline(int fd, char *buf)
 {
 	int rc;
@@ -55,55 +57,56 @@ int fd_readline(int fd, char *buf)
 	return i;
 }
 
-/* Funcion para manejar una conexion */
 void handle_conn(int csock)
 {
+	void* shared_u;
 	char buf[200];
 	int rc;
-    int fd;
-	/*Operaciones para acceder a la memoria compartida*/
-	fd = shm_open("/BACK", O_RDWR | O_CREAT, 0644);
-    ftruncate(fd,SHM_BYTES);
-    void* memptr = mmap(NULL, SHM_BYTES, PROT_READ | PROT_WRITE,
-    MAP_SHARED, fd, 0);
+	int fd;
+
 	while (1) {
 		/* Atendemos pedidos, uno por linea */
 		rc = fd_readline(csock, buf);
 		if (rc < 0)
 			quit("read... raro");
 
+		if (rc == 0) {
+			/* linea vacia, se cerró la conexión */
+			close(csock);
+			return;
+		}
+
 		if (!strcmp(buf, "NUEVO")) {
-			/* Ingresaron "NUEVO" */
+			fd = shm_open(SHM_NAME, SHM_FLAG, 0644);
+			ftruncate(fd, SHM_SIZE);
+			shared_u = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 			char reply[20];
-			sprintf(reply, "%d\n", *(int*)memptr); /*Ahora el numero se lee de la memoria compartida*/
-			*(int*)memptr += 1; /*Ahora el numero se actualiza en la memoria compartida*/
+			sprintf(reply, "%d\n", *(int*)shared_u);
+			*(int*)shared_u += 1;
 			write(csock, reply, strlen(reply));
 		} else if (!strcmp(buf, "CHAU")) {
-            /* Ingresaron "CHAU" */
-            close(fd);
-			munmap(memptr, SHM_BYTES);
-            shm_unlink("/BACK");
-			exit(0); 
+			close(csock);
+			exit(0);
+			return;
 		}
 	}
 }
 
-/* Funcion para manejar todo */
 void wait_for_clients(int lsock)
 {
 	int csock;
-    int fd;
-	int wstatus;
+
 	/* Esperamos una conexión, no nos interesa de donde viene */
 	csock = accept(lsock, NULL, NULL);
 	if (csock < 0)
 		quit("accept");
-    fd = fork();
-    if(fd == 0) /* sos el hijo, atendes al cliente */
-		handle_conn(csock);
-	/* sos el padre, esperas al hijo */
-	// wait(NULL);
-	/* cerras la conexion */
+
+    /* Creamos un hijo para que atienda el. */
+    int pid = fork();
+	/* Atendemos al cliente */
+    if (pid == 0)
+	    handle_conn(csock);
+	/* El padre cierra el puerto para que quede nomas el hijo */
 	close(csock);
 	/* Volvemos a esperar conexiones */
 	wait_for_clients(lsock);
@@ -112,19 +115,14 @@ void wait_for_clients(int lsock)
 /* Crea un socket de escucha en puerto 4040 TCP */
 int mk_lsock()
 {
-	struct sockaddr_in sa; /* Estructura de un socket de internet. */
+	struct sockaddr_in sa;
 	int lsock;
 	int rc;
 	int yes = 1;
 
 	/* Crear socket */
-	/* socket recibe: 
-	- tipo de conexiones con los que puede conectarse 
-	- si va a ser seguro o no.
-	- protocolo a seguir segun el tipo de conexiones (suele haber solo 1, se usa 0)
-	*/
 	lsock = socket(AF_INET, SOCK_STREAM, 0);
-	if (lsock < 0) /* socket devuelve el file descriptor que abrio, si tuvo un error da -1. */
+	if (lsock < 0)
 		quit("socket");
 
 	/* Setear opción reuseaddr... normalmente no es necesario */
@@ -132,9 +130,8 @@ int mk_lsock()
 		quit("setsockopt");
 
 	sa.sin_family = AF_INET;
-	sa.sin_port = htons(4040); /* convierte el 4040 en su valor de direccion. */
-	sa.sin_addr.s_addr = htonl(INADDR_ANY); /* INADDR_ANY vale cero. lo que hace esto es que sa se 
-	fije unicamente en las direcciones de la red local. */
+	sa.sin_port = htons(4040);
+	sa.sin_addr.s_addr = htonl(INADDR_ANY);
 
 	/* Bindear al puerto 4040 TCP, en todas las direcciones disponibles */
 	rc = bind(lsock, (struct sockaddr *)&sa, sizeof sa);
@@ -142,7 +139,7 @@ int mk_lsock()
 		quit("bind");
 
 	/* Setear en modo escucha */
-	rc = listen(lsock, SHM_BYTES);
+	rc = listen(lsock, 10);
 	if (rc < 0)
 		quit("listen");
 
@@ -152,21 +149,14 @@ int mk_lsock()
 int main()
 {
 	int lsock;
-	int fd;
+	lsock = mk_lsock();
 
-	/* Crea un socket de escucha en puerto 4040 TCP */
-	lsock = mk_lsock(); 
-
-    fd = shm_open("/BACK", O_RDWR | O_CREAT, 0644);
-    ftruncate(fd,SHM_BYTES);
-    void* memptr = mmap(NULL, SHM_BYTES, PROT_READ | PROT_WRITE,
-    MAP_SHARED, fd, 0);
-    *(int*)memptr = 0; /*Inicializo los numeros en la memoria compartida en 0*/
+	int fd = shm_open(SHM_NAME, O_RDWR | O_CREAT, 0644);
+	ftruncate(fd, SHM_SIZE);
+	void* shared_u = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	*(int*)shared_u = 0;
 
 	wait_for_clients(lsock);
-	//munmap(memptr, SHM_BYTES);
-    //close(fd);
-    //shm_unlink("/BACK");
 
 	return 0;
 }
