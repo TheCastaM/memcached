@@ -1,16 +1,3 @@
-/*
-    Implementacion de un servidor que provee un key-value store a sus clientes.
-    Las operaciones disponibles son:
-     - PUT k v : introduce al store el valor v bajo la clave k. El valor viejo
-    para k, si existia, es pisado. El servidor debe responder con OK.
-     - DEL k : Borra el valor asociado a la calve k. El servidor debe 
-    responder OK.
-     - GET k : Busca el valor asociado a la clave k. El servidor debe contestar 
-    con OK v si el valor es v, o NOTFOUND si no hay valor asociado a k.
-*/
-
-
-
 #include <stdio.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -25,19 +12,34 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 
+#include "dato.h"
+#include "tabla.h"
+
 #define SHM_NAME "/shared_counter"
-#define SHM_SIZE sizeof(int)
+#define SHM_SIZE sizeof(TablaHash)
 #define SHM_FLAG  O_RDWR | O_CREAT
+
+/*
+    Implementacion de un servidor que provee un key-value store a sus clientes.
+    Las operaciones disponibles son:
+     - PUT k v : introduce al store el valor v bajo la clave k. El valor viejo
+    para k, si existia, es pisado. El servidor debe responder con OK.
+     - DEL k : Borra el valor asociado a la calve k. El servidor debe 
+    responder OK.
+     - GET k : Busca el valor asociado a la clave k. El servidor debe contestar 
+    con OK v si el valor es v, o NOTFOUND si no hay valor asociado a k.
+*/
 
 /*
  * Para probar, usar netcat. Ej:
  *
  *      $ nc localhost 4040
- *      NUEVO
- *      0
- *      NUEVO
- *      1
- *      CHAU
+ *      PUT 100 10
+ *      OK
+ *      GET 100
+ *      10
+ *      DEL 100
+ * 		OK
  */
 
 void quit(char *s)
@@ -70,12 +72,33 @@ int fd_readline(int fd, char *buf)
 	return i;
 }
 
+char* line_arg(char* line) {
+	return strtok(line," ");
+}
+
+char* line_key(char* line) {
+	char* ret = strtok(line," ");
+	ret = strtok(NULL," ");
+	return ret;
+}
+
+char* line_val(char* line) {
+	char* ret = strtok(line," ");
+	ret = strtok(NULL," ");
+	ret = strtok(NULL," ");
+	return ret;
+}
+
+
 void handle_conn(int csock)
 {
 	void* shared_u;
 	char buf[200];
 	int rc;
 	int fd;
+	char* operacion;
+	char* clave;
+	char* valor;
 
 	while (1) {
 		/* Atendemos pedidos, uno por linea */
@@ -89,18 +112,37 @@ void handle_conn(int csock)
 			return;
 		}
 
-		if (!strcmp(buf, "NUEVO")) {
-			fd = shm_open(SHM_NAME, SHM_FLAG, 0644);
-			ftruncate(fd, SHM_SIZE);
-			shared_u = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		operacion = line_arg(buf);
+		clave = line_key(buf);
+		valor = line_val(buf);
+
+		if (!strcmp(operacion, "PUT")) {
+			/* Debemos poner la el valor en la clave */
+			// fd = shm_open(SHM_NAME, SHM_FLAG, 0644);
+			// ftruncate(fd, SHM_SIZE);
+			// shared_u = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 			char reply[20];
-			sprintf(reply, "%d\n", *(int*)shared_u);
-			*(int*)shared_u += 1;
+			sprintf(reply, "OK\n");
+			// *(int*)shared_u += 1;
 			write(csock, reply, strlen(reply));
-		} else if (!strcmp(buf, "CHAU")) {
-			close(csock);
-			exit(0);
-			return;
+		} else if (!strcmp(operacion, "GET")) {
+			/* Buscamos el valor de la clave */
+			// fd = shm_open(SHM_NAME, SHM_FLAG, 0644);
+			// ftruncate(fd, SHM_SIZE);
+			// shared_u = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+			char reply[20];
+			sprintf(reply, "OK\n");
+			// *(int*)shared_u += 1;
+			write(csock, reply, strlen(reply));
+		} else if (!strcmp(operacion, "DEL")) {
+			/* Borramos la clave del valor */
+			// fd = shm_open(SHM_NAME, SHM_FLAG, 0644);
+			// ftruncate(fd, SHM_SIZE);
+			// shared_u = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+			char reply[20];
+			sprintf(reply, "OK\n");
+			// *(int*)shared_u += 1;
+			write(csock, reply, strlen(reply));
 		}
 	}
 }
@@ -167,7 +209,7 @@ int main()
 	int fd = shm_open(SHM_NAME, O_RDWR | O_CREAT, 0644);
 	ftruncate(fd, SHM_SIZE);
 	void* shared_u = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-	*(int*)shared_u = 0;
+	// *(TablaHash*)shared_u = tablahash_crear(100, copia_dato, comparar_dato, destruye_dato, hash_dato);
 
 	wait_for_clients(lsock);
 
