@@ -5,32 +5,34 @@
  * Codigo de las funciones para operar con el diccionario
  */
 
-typedef struct {
+struct _Dato {
     char* clave;
     int valor;
-} Dato;
+};
+
+typedef struct _Dato *Dato;
 
 /**
  * Crea un dato clave-valor
  */
-Dato* crear_dato(char* clave, char* valor);
+Dato dato_crear(char* clave, char* valor);
 
 /**
  * Copia un dato clave-valor
  */
-void* copia_dato(void* dato);
+void* dato_copia(void* dato);
 
 /**
  * Destruye un dato clave-valor
  */
-void destruye_dato(void* dato);
+void dato_destruye(void* dato);
 
 /**
  * Compara un dato clave-valor
  */
-int comparar_dato(void* dato1, void* dato2);
+int dato_compara(void* dato1, void* dato2);
 
 /**
  * Da un valor en base a un dato clave-valor
  */
-int hash_dato(void* dato);
+unsigned dato_hash(void* dato);
