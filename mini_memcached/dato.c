@@ -41,5 +41,5 @@ int dato_compara(void* dato1, void* dato2) {
  * Da un valor en base a un dato clave-valor
  */
 unsigned dato_hash(void* dato) {
-    return abs(atoi(((Dato) dato)->clave));
+    return abs(atoi(((Dato)dato)->clave));
 }

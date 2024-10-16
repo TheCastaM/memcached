@@ -94,11 +94,14 @@ void handle_conn(int csock)
 {
 	void* shared_u;
 	char buf[200];
+	char* str;
 	int rc;
 	int fd;
 	char* operacion;
 	char* clave;
 	char* valor;
+	Dato dato;
+	Dato temp;
 
 	while (1) {
 		/* Atendemos pedidos, uno por linea */
@@ -112,36 +115,57 @@ void handle_conn(int csock)
 			return;
 		}
 
-		operacion = line_arg(buf);
-		clave = line_key(buf);
-		valor = line_val(buf);
+		str = buf;
+		str = strtok(str, " ");
+		operacion = str;
+		str = strtok(NULL, " ");
+		clave = str;
+		str = strtok(NULL, " ");
+		valor = str;
 
 		if (!strcmp(operacion, "PUT")) {
 			/* Debemos poner la el valor en la clave */
-			// fd = shm_open(SHM_NAME, SHM_FLAG, 0644);
-			// ftruncate(fd, SHM_SIZE);
-			// shared_u = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+			fd = shm_open(SHM_NAME, SHM_FLAG, 0644);
+			ftruncate(fd, SHM_SIZE);
+			shared_u = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+			
+			dato = dato_crear(clave, valor);
+			tablahash_insertar(*(TablaHash*)shared_u, dato);
+			dato_destruye(dato);
+			
 			char reply[20];
+			// sprintf(reply, "%p\n", shared_u);
 			sprintf(reply, "OK\n");
-			// *(int*)shared_u += 1;
 			write(csock, reply, strlen(reply));
 		} else if (!strcmp(operacion, "GET")) {
 			/* Buscamos el valor de la clave */
-			// fd = shm_open(SHM_NAME, SHM_FLAG, 0644);
-			// ftruncate(fd, SHM_SIZE);
-			// shared_u = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+			fd = shm_open(SHM_NAME, SHM_FLAG, 0644);
+			ftruncate(fd, SHM_SIZE);
+			shared_u = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+			
+			dato = dato_crear(clave, "0");
+			temp = tablahash_buscar(*(TablaHash*)shared_u, dato);
+			dato_destruye(dato);
+			
 			char reply[20];
-			sprintf(reply, "OK\n");
-			// *(int*)shared_u += 1;
+			if (temp != NULL) {
+				sprintf(reply, "OK %d\n", temp->valor);
+			} else {
+				sprintf(reply, "NOTFOUND\n");
+			}
 			write(csock, reply, strlen(reply));
 		} else if (!strcmp(operacion, "DEL")) {
 			/* Borramos la clave del valor */
-			// fd = shm_open(SHM_NAME, SHM_FLAG, 0644);
-			// ftruncate(fd, SHM_SIZE);
-			// shared_u = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+			fd = shm_open(SHM_NAME, SHM_FLAG, 0644);
+			ftruncate(fd, SHM_SIZE);
+			shared_u = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+			
+			dato = dato_crear(clave, "0");
+			tablahash_eliminar(*(TablaHash*)shared_u, dato);
+			dato_destruye(dato);
+
 			char reply[20];
 			sprintf(reply, "OK\n");
-			// *(int*)shared_u += 1;
 			write(csock, reply, strlen(reply));
 		}
 	}
@@ -209,7 +233,7 @@ int main()
 	int fd = shm_open(SHM_NAME, O_RDWR | O_CREAT, 0644);
 	ftruncate(fd, SHM_SIZE);
 	void* shared_u = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-	// *(TablaHash*)shared_u = tablahash_crear(100, copia_dato, comparar_dato, destruye_dato, hash_dato);
+	*(TablaHash*)shared_u = tablahash_crear(100, dato_copia, dato_compara, dato_destruye, dato_hash);
 
 	wait_for_clients(lsock);
 
